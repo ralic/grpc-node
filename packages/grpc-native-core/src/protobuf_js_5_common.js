@@ -106,9 +106,9 @@ exports.getProtobufServiceAttrs = function getProtobufServiceAttrs(service,
      lodash@3.10.1-compatible functions. A previous version used
      _.fromPairs, which would be cleaner, but was introduced in lodash
      version 4 */
-  return _.zipObject(_.map(service.children, function(method) {
+  return _.zipObject(service.children.map(function(method) {
     return _.camelCase(method.name);
-  }), _.map(service.children, function(method) {
+  }), service.children.map(function(method) {
     return {
       originalName: method.name,
       path: prefix + method.name,
@@ -167,5 +167,5 @@ exports.loadObject = function loadObject(value, options) {
  *   ReflectionObject
  */
 exports.isProbablyProtobufJs5 = function isProbablyProtobufJs5(obj) {
-  return _.isArray(obj.children) && (typeof obj.build === 'function');
+  return Array.isArray(obj.children) && (typeof obj.build === 'function');
 };

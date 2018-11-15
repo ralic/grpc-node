@@ -371,7 +371,7 @@ function Client(address, credentials, options) {
   }
 
   // Resolve interceptor options and assign interceptors to each method
-  if (_.isArray(options.interceptor_providers) && _.isArray(options.interceptors)) {
+  if (Array.isArray(options.interceptor_providers) && Array.isArray(options.interceptors)) {
     throw new client_interceptors.InterceptorConfigurationError(
       'Both interceptors and interceptor_providers were passed as options ' +
       'to the client constructor. Only one of these is allowed.');
@@ -383,12 +383,16 @@ function Client(address, credentials, options) {
       .resolveInterceptorProviders(self.$interceptor_providers, method_definition)
       .concat(self.$interceptors);
   });
+
+  this.$callInvocationTransformer = options.callInvocationTransformer;
+
   let channelOverride = options.channelOverride;
   let channelFactoryOverride = options.channelFactoryOverride;
   // Exclude channel options which have already been consumed
   var channel_options = _.omit(options,
      ['interceptors', 'interceptor_providers',
-      'channelOverride', 'channelFactoryOverride']);
+      'channelOverride', 'channelFactoryOverride',
+      'callInvocationTransformer']);
   /* Private fields use $ as a prefix instead of _ because it is an invalid
    * prefix of a method name */
   if (channelOverride) {
@@ -405,12 +409,12 @@ function Client(address, credentials, options) {
 exports.Client = Client;
 
 Client.prototype.resolveCallInterceptors = function(method_definition, interceptors, interceptor_providers) {
-  if (_.isArray(interceptors) && _.isArray(interceptor_providers)) {
+  if (Array.isArray(interceptors) && Array.isArray(interceptor_providers)) {
     throw new client_interceptors.InterceptorConfigurationError(
       'Both interceptors and interceptor_providers were passed as call ' +
       'options. Only one of these is allowed.');
   }
-  if (_.isArray(interceptors) || _.isArray(interceptor_providers)) {
+  if (Array.isArray(interceptors) || Array.isArray(interceptor_providers)) {
     interceptors = interceptors || [];
     interceptor_providers = interceptor_providers || [];
     return client_interceptors.resolveInterceptorProviders(interceptor_providers, method_definition).concat(interceptors);
@@ -445,7 +449,7 @@ Client.prototype.resolveCallInterceptors = function(method_definition, intercept
 Client.prototype.makeUnaryRequest = function(path, serialize, deserialize,
                                              argument, metadata, options,
                                              callback) {
-  if (_.isFunction(options)) {
+  if (typeof options === 'function') {
     callback = options;
     if (metadata instanceof Metadata) {
       options = {};
@@ -453,7 +457,7 @@ Client.prototype.makeUnaryRequest = function(path, serialize, deserialize,
       options = metadata;
       metadata = new Metadata();
     }
-  } else if (_.isFunction(metadata)) {
+  } else if (typeof metadata === 'function') {
     callback = metadata;
     metadata = new Metadata();
     options = {};
@@ -466,7 +470,7 @@ Client.prototype.makeUnaryRequest = function(path, serialize, deserialize,
   }
   if (!((metadata instanceof Metadata) &&
         (options instanceof Object) &&
-        (_.isFunction(callback)))) {
+        (typeof callback === 'function'))) {
     throw new Error('Argument mismatch in makeUnaryRequest');
   }
 
@@ -480,22 +484,50 @@ Client.prototype.makeUnaryRequest = function(path, serialize, deserialize,
 
   metadata = metadata.clone();
 
-  var intercepting_call = client_interceptors.getInterceptingCall(
-    method_definition,
-    options,
-    Client.prototype.resolveCallInterceptors.call(this, method_definition, options.interceptors, options.interceptor_providers),
-    this.$channel,
-    callback
-  );
-  var emitter = new ClientUnaryCall(intercepting_call);
-  var last_listener = client_interceptors.getLastListener(
-    method_definition,
-    emitter,
-    callback
+  var callProperties = {
+    argument: argument,
+    metadata: metadata,
+    call: new ClientUnaryCall(),
+    channel: this.$channel,
+    methodDefinition: method_definition,
+    callOptions: options,
+    callback: callback
+  };
+
+  // Transform call properties if specified.
+  if (this.$callInvocationTransformer) {
+    callProperties = this.$callInvocationTransformer(callProperties);
+  }
+
+  var callOptions = callProperties.callOptions;
+  var methodDefinition = callProperties.methodDefinition;
+
+  var interceptors = Client.prototype.resolveCallInterceptors.call(
+    this,
+    methodDefinition,
+    callOptions.interceptors,
+    callOptions.interceptor_providers
   );
 
-  intercepting_call.start(metadata, last_listener);
-  intercepting_call.sendMessage(argument);
+  var intercepting_call = client_interceptors.getInterceptingCall(
+    methodDefinition,
+    callOptions,
+    interceptors,
+    callProperties.channel,
+    callProperties.callback
+  );
+
+  var emitter = callProperties.call;
+  emitter.call = intercepting_call;
+
+  var last_listener = client_interceptors.getLastListener(
+    methodDefinition,
+    emitter,
+    callProperties.callback
+  );
+
+  intercepting_call.start(callProperties.metadata, last_listener);
+  intercepting_call.sendMessage(callProperties.argument);
   intercepting_call.halfClose();
 
   return emitter;
@@ -520,7 +552,7 @@ Client.prototype.makeUnaryRequest = function(path, serialize, deserialize,
 Client.prototype.makeClientStreamRequest = function(path, serialize,
                                                     deserialize, metadata,
                                                     options, callback) {
-  if (_.isFunction(options)) {
+  if (typeof options === 'function') {
     callback = options;
     if (metadata instanceof Metadata) {
       options = {};
@@ -528,7 +560,7 @@ Client.prototype.makeClientStreamRequest = function(path, serialize,
       options = metadata;
       metadata = new Metadata();
     }
-  } else if (_.isFunction(metadata)) {
+  } else if (typeof metadata === 'function') {
     callback = metadata;
     metadata = new Metadata();
     options = {};
@@ -541,7 +573,7 @@ Client.prototype.makeClientStreamRequest = function(path, serialize,
   }
   if (!((metadata instanceof Metadata) &&
        (options instanceof Object) &&
-       (_.isFunction(callback)))) {
+       (typeof callback === 'function'))) {
     throw new Error('Argument mismatch in makeClientStreamRequest');
   }
 
@@ -555,21 +587,48 @@ Client.prototype.makeClientStreamRequest = function(path, serialize,
 
   metadata = metadata.clone();
 
-  var intercepting_call = client_interceptors.getInterceptingCall(
-    method_definition,
-    options,
-    Client.prototype.resolveCallInterceptors.call(this, method_definition, options.interceptors, options.interceptor_providers),
-    this.$channel,
-    callback
-  );
-  var emitter = new ClientWritableStream(intercepting_call);
-  var last_listener = client_interceptors.getLastListener(
-    method_definition,
-    emitter,
-    callback
+  var callProperties = {
+    metadata: metadata,
+    call: new ClientWritableStream(),
+    channel: this.$channel,
+    methodDefinition: method_definition,
+    callOptions: options,
+    callback: callback
+  };
+
+  // Transform call properties if specified.
+  if (this.$callInvocationTransformer) {
+    callProperties = this.$callInvocationTransformer(callProperties);
+  }
+
+  var callOptions = callProperties.callOptions;
+  var methodDefinition = callProperties.methodDefinition;
+
+  var interceptors = Client.prototype.resolveCallInterceptors.call(
+    this,
+    methodDefinition,
+    callOptions.interceptors,
+    callOptions.interceptor_providers
   );
 
-  intercepting_call.start(metadata, last_listener);
+  var intercepting_call = client_interceptors.getInterceptingCall(
+    methodDefinition,
+    callOptions,
+    interceptors,
+    callProperties.channel,
+    callProperties.callback
+  );
+
+  var emitter = callProperties.call;
+  emitter.call = intercepting_call;
+
+  var last_listener = client_interceptors.getLastListener(
+    methodDefinition,
+    emitter,
+    callProperties.callback
+  );
+
+  intercepting_call.start(callProperties.metadata, last_listener);
 
   return emitter;
 };
@@ -613,22 +672,46 @@ Client.prototype.makeServerStreamRequest = function(path, serialize,
 
   metadata = metadata.clone();
 
-  var emitter = new ClientReadableStream();
+  var callProperties = {
+    argument: argument,
+    metadata: metadata,
+    call: new ClientReadableStream(),
+    channel: this.$channel,
+    methodDefinition: method_definition,
+    callOptions: options,
+  };
+
+  // Transform call properties if specified.
+  if (this.$callInvocationTransformer) {
+    callProperties = this.$callInvocationTransformer(callProperties);
+  }
+
+  var callOptions = callProperties.callOptions;
+  var methodDefinition = callProperties.methodDefinition;
+
+  var interceptors = Client.prototype.resolveCallInterceptors.call(
+    this,
+    methodDefinition,
+    callOptions.interceptors,
+    callOptions.interceptor_providers
+  );
+
+  var emitter = callProperties.call;
   var intercepting_call = client_interceptors.getInterceptingCall(
-    method_definition,
-    options,
-    Client.prototype.resolveCallInterceptors.call(this, method_definition, options.interceptors, options.interceptor_providers),
-    this.$channel,
+    methodDefinition,
+    callOptions,
+    interceptors,
+    callProperties.channel,
     emitter
   );
   emitter.call = intercepting_call;
   var last_listener = client_interceptors.getLastListener(
-    method_definition,
+    methodDefinition,
     emitter
   );
 
-  intercepting_call.start(metadata, last_listener);
-  intercepting_call.sendMessage(argument);
+  intercepting_call.start(callProperties.metadata, last_listener);
+  intercepting_call.sendMessage(callProperties.argument);
   intercepting_call.halfClose();
 
   return emitter;
@@ -669,21 +752,45 @@ Client.prototype.makeBidiStreamRequest = function(path, serialize,
 
   metadata = metadata.clone();
 
-  var emitter = new ClientDuplexStream();
+  var callProperties = {
+    metadata: metadata,
+    call: new ClientDuplexStream(),
+    channel: this.$channel,
+    methodDefinition: method_definition,
+    callOptions: options,
+  };
+
+  // Transform call properties if specified.
+  if (this.$callInvocationTransformer) {
+    callProperties = this.$callInvocationTransformer(callProperties);
+  }
+
+  var callOptions = callProperties.callOptions;
+  var methodDefinition = callProperties.methodDefinition;
+
+  var interceptors = Client.prototype.resolveCallInterceptors.call(
+    this,
+    methodDefinition,
+    callOptions.interceptors,
+    callOptions.interceptor_providers
+  );
+
+
+  var emitter = callProperties.call;
   var intercepting_call = client_interceptors.getInterceptingCall(
-    method_definition,
-    options,
-    Client.prototype.resolveCallInterceptors.call(this, method_definition, options.interceptors, options.interceptor_providers),
-    this.$channel,
+    methodDefinition,
+    callOptions,
+    interceptors,
+    callProperties.channel,
     emitter
   );
   emitter.call = intercepting_call;
   var last_listener = client_interceptors.getLastListener(
-    method_definition,
+    methodDefinition,
     emitter
   );
 
-  intercepting_call.start(metadata, last_listener);
+  intercepting_call.start(callProperties.metadata, last_listener);
 
   return emitter;
 };
@@ -720,13 +827,23 @@ Client.prototype.waitForReady = function(deadline, callback) {
       callback(new Error('Failed to connect before the deadline'));
       return;
     }
-    var new_state = self.$channel.getConnectivityState(true);
+    var new_state;
+    try {
+      new_state = self.$channel.getConnectivityState(true);
+    } catch (e) {
+      callback(new Error('The channel has been closed'));
+      return;
+    }
     if (new_state === grpc.connectivityState.READY) {
       callback();
     } else if (new_state === grpc.connectivityState.FATAL_FAILURE) {
       callback(new Error('Failed to connect to server'));
     } else {
-      self.$channel.watchConnectivityState(new_state, deadline, checkState);
+      try {
+        self.$channel.watchConnectivityState(new_state, deadline, checkState);
+      } catch (e) {
+        callback(new Error('The channel has been closed'));
+      }
     }
   };
   /* Force a single round of polling to ensure that the channel state is up
@@ -818,7 +935,7 @@ exports.makeClientConstructor = function(methods, serviceName,
   ServiceClient.prototype.$method_names = {};
 
   _.each(methods, function(attrs, name) {
-    if (_.startsWith(name, '$')) {
+    if (name.indexOf('$') === 0) {
       throw new Error('Method names cannot start with $');
     }
     var method_type = common.getMethodType(attrs);

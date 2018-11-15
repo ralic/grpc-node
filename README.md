@@ -3,7 +3,7 @@
 
 ## Implementations
 
-For a comparison of the features available in these two libraries, see [this document](https://github.com/grpc/grpc-node/tree/master/PACKGE-COMPARISON.md)
+For a comparison of the features available in these two libraries, see [this document](https://github.com/grpc/grpc-node/tree/master/PACKAGE-COMPARISON.md)
 
 ### C-based Client and Server
 
@@ -15,7 +15,7 @@ This is the existing, feature-rich implementation of gRPC using a C++ addon. It 
 
 ### Pure JavaScript Client
 
-Directory: [`packages/grpc-js-core`](https://github.com/grpc/grpc-node/tree/master/packages/grpc-js-core)
+Directory: [`packages/grpc-js`](https://github.com/grpc/grpc-node/tree/master/packages/grpc-js)
 
 npm package: [@grpc/grpc-js](https://www.npmjs.com/package/@grpc/grpc-js)
 
@@ -27,7 +27,7 @@ This library implements the core functionality of gRPC purely in JavaScript, wit
 
 ### gRPC Protobuf Loader
 
-Directory: [`packages/grpc-protobufjs`](https://github.com/grpc/grpc-node/tree/master/packages/grpc-protobufjs)
+Directory: [`packages/proto-loader`](https://github.com/grpc/grpc-node/tree/master/packages/proto-loader)
 
 npm package: [@grpc/proto-loader](https://www.npmjs.com/package/@grpc/proto-loader)
 
